@@ -1,69 +1,66 @@
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.27.0"
-    }
-  }
-}
-
 provider "azurerm" {
   features {}
-  client_id       = var.client_id       # Uses ARM_CLIENT_ID
-  client_secret   = var.client_secret   # Uses ARM_CLIENT_SECRET
-  tenant_id       = var.tenant_id       # Uses ARM_TENANT_ID
-  subscription_id = var.subscription_id # Uses ARM_SUBSCRIPTION_ID
 }
 
-resource "azurerm_resource_group" "app" {
-  name     = "tp-devops"
-  location = "West Europe"
+resource "azurerm_resource_group" "rg" {
+  name     = "devops-rg"
+  location = "East US"
 }
 
-resource "azurerm_service_plan" "plan" {
-  name                = "tp-devops"
-  resource_group_name = azurerm_resource_group.app.name
-  location            = azurerm_resource_group.app.location
-  os_type             = "Linux"
-  sku_name            = "F1" # Free tier
+resource "azurerm_virtual_network" "vnet" {
+  name                = "devops-vnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
 }
 
-resource "azurerm_linux_web_app" "app" {
-  name                = "tp-devops-${lower(substr(md5(azurerm_resource_group.app.name), 0, 8))}"
-  resource_group_name = azurerm_resource_group.app.name
-  location            = azurerm_service_plan.plan.location
-  service_plan_id     = azurerm_service_plan.plan.id
+resource "azurerm_subnet" "subnet" {
+  name                 = "devops-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
 
-  # Un seul bloc site_config requis
-  site_config {
-    application_stack {
-      docker_image        = "chaddathekhobza/devops-tp2"  # docker_image au lieu de docker_image_name
-      docker_image_tag    = "latest"
-      docker_registry_url = "https://index.docker.io/v1/"  # Format recommandé
-    }
-  }
+resource "azurerm_network_interface" "nic" {
+  name                = "devops-nic"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
 
-  app_settings = {
-    WEBSITES_PORT = "8080"
-  }
-
-  logs {
-    application_logs {
-      file_system_level = "Information"
-    }
-    http_logs {
-      file_system {
-        retention_in_days = 7
-        retention_in_mb   = 100
-      }
-    }
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
   }
 }
 
-output "webapp_name" {
-  value = azurerm_linux_web_app.app.name
-}
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                = "devops-vm"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  size                = "Standard_B1s"
+  admin_username      = "azureuser"
 
-output "webapp_url" {
-  value = "https://${azurerm_linux_web_app.app.default_hostname}"
+  network_interface_ids = [
+    azurerm_network_interface.nic.id,
+  ]
+
+  admin_password = "P@ssw0rd1234!"
+
+  disable_password_authentication = false
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18.04-LTS"
+    version   = "latest"
+  }
+
+  tags = {
+    Name = "DevOps-Instance"
+  }
 }
