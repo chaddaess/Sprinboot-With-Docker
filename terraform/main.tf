@@ -34,18 +34,12 @@ resource "azurerm_linux_web_app" "app" {
   location            = azurerm_service_plan.plan.location
   service_plan_id     = azurerm_service_plan.plan.id
 
-  site_config {
-    site_config {
-      application_stack {
-        docker_image_name   = "chaddathekhobza/devops-tp2"
-        docker_image_tag    = "latest"
-        docker_registry_url = "https://index.docker.io"
-      }
-    }
-  }
-
   app_settings = {
     WEBSITES_PORT = "8080"
+  }
+
+  site_config {
+    linux_fx_version = "DOCKER|chaddathekhobza/devops-tp2:latest"
   }
 
   logs {
