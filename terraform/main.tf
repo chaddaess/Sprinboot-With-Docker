@@ -35,11 +35,11 @@ resource "azurerm_linux_web_app" "app" {
   service_plan_id     = azurerm_service_plan.plan.id
 
   site_config {
-    application_stack {
-      docker {
-        image_name   = "chaddathekhobza/devops-tp2"
-        image_tag    = "latest"
-        registry_url = "https://index.docker.io"
+    site_config {
+      application_stack {
+        docker_image_name   = "chaddathekhobza/devops-tp2"
+        docker_image_tag    = "latest"
+        docker_registry_url = "https://index.docker.io"
       }
     }
   }
