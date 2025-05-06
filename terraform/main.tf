@@ -27,11 +27,11 @@ resource "azurerm_linux_web_app" "webapp" {
 
   site_config {
     application_stack {
-      docker_image_name   = "hello-world"
-      docker_image_tag    = "latest"
+      docker_image_name   = "hello-world:latest"
       docker_registry_url = "https://index.docker.io"
     }
   }
+
 
   app_settings = {
     WEBSITES_PORT = "80"
