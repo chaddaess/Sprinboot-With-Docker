@@ -96,34 +96,46 @@ public class VulnerableController {
         return input.toUpperCase();
     }
 
-    // VULNERABLE: XSS - Reflects user input without sanitization in HTML response
-    // DAST tools like OWASP ZAP will detect this
+    // FIXED: XSS - Properly escape HTML entities to prevent script injection
+    // DAST tools will now pass this endpoint
     @GetMapping(value = "/search", produces = "text/html")
     public String search(@RequestParam String query) {
-        // VULNERABILITY: Directly embedding user input in HTML without escaping
-        // An attacker could inject: <script>alert('XSS')</script>
+        // Escape HTML special characters to prevent XSS
+        String safeQuery = escapeHtml(query);
         return "<html><body>" +
                "<h1>Search Results</h1>" +
-               "<p>You searched for: " + query + "</p>" +
+               "<p>You searched for: " + safeQuery + "</p>" +
                "<p>No results found.</p>" +
                "</body></html>";
     }
 
-    // VULNERABLE: Sensitive data exposure without authentication
-    // DAST will flag this as accessible without proper security headers
+    // FIXED: Remove sensitive data exposure - return generic config only
+    // In production, this should require authentication/authorization
     @GetMapping("/admin/config")
     public String getAdminConfig() {
-        // VULNERABILITY: Exposing sensitive configuration without authentication
+        // FIXED: Only return non-sensitive configuration
+        // Authentication/Authorization should be added using Spring Security
         return "{\n" +
-               "  \"database\": \"postgresql://prod-db:5432/myapp\",\n" +
-               "  \"api_keys\": {\n" +
-               "    \"payment_gateway\": \"pk_live_123456789\",\n" +
-               "    \"email_service\": \"key-abcdef123456\"\n" +
-               "  },\n" +
-               "  \"internal_endpoints\": [\n" +
-               "    \"http://internal-api.local/admin\",\n" +
-               "    \"http://10.0.0.5:8080/metrics\"\n" +
-               "  ]\n" +
+               "  \"application\": \"MyApp\",\n" +
+               "  \"version\": \"1.0.0\",\n" +
+               "  \"environment\": \"production\",\n" +
+               "  \"features\": {\n" +
+               "    \"search\": true,\n" +
+               "    \"analytics\": true\n" +
+               "  }\n" +
                "}";
+    }
+
+    // Helper method to escape HTML entities
+    private String escapeHtml(String input) {
+        if (input == null) {
+            return "";
+        }
+        return input.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\"", "&quot;")
+                    .replace("'", "&#x27;")
+                    .replace("/", "&#x2F;");
     }
 }
