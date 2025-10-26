@@ -6,7 +6,7 @@ import java.security.SecureRandom;
 
 @RestController
 @RequestMapping("/api/v1/secure")
-public class SecureController {
+public class VulnerableController {
 
     // FIXED: Use environment variables for credentials
     @Value("${database.password:}")
