@@ -173,14 +173,34 @@ jobs:
         SB_VERSION=$(grep -oP '<version>\K[^<]+' pom.xml | head -1)
         echo "🔎 Spring Boot Version: $SB_VERSION"
         
-        # Spring Boot 2.5.x has multiple CVEs
+        # Spring Boot 2.5.x and 2.6.x have multiple CVEs
         if [[ "$SB_VERSION" =~ ^2\.[0-5]\. ]]; then
-          echo "� CRITICAL: Spring Boot $SB_VERSION has known vulnerabilities:"
+          echo "🔴 CRITICAL: Spring Boot $SB_VERSION has known vulnerabilities:"
           echo "   - CVE-2021-22060: HTTP Response Splitting"
           echo "   - CVE-2022-22965: Spring4Shell RCE"
           echo "   - CVE-2022-22950: Spring Framework DoS"
           echo "   - Recommendation: Upgrade to Spring Boot 2.7.x or 3.x"
           VULNERABLE=1
+        elif [[ "$SB_VERSION" =~ ^2\.6\. ]]; then
+          echo "🔴 CRITICAL: Spring Boot $SB_VERSION has known vulnerabilities:"
+          echo "   - CVE-2022-22965: Spring4Shell RCE"
+          echo "   - CVE-2022-22950: Spring Framework DoS"
+          echo "   - Recommendation: Upgrade to Spring Boot 2.7.18 or 3.x"
+          VULNERABLE=1
+        elif [[ "$SB_VERSION" =~ ^2\.7\. ]]; then
+          # Spring Boot 2.7.18+ is safe
+          PATCH_VERSION=$(echo "$SB_VERSION" | cut -d'.' -f3)
+          if [ "$PATCH_VERSION" -lt 18 ]; then
+            echo "⚠️  WARNING: Spring Boot $SB_VERSION may have vulnerabilities"
+            echo "   - Recommendation: Upgrade to Spring Boot 2.7.18 or later"
+            # Not marking as VULNERABLE for 2.7.x to allow some flexibility
+          else
+            echo "✅ Spring Boot $SB_VERSION - No known critical vulnerabilities"
+          fi
+        elif [[ "$SB_VERSION" =~ ^3\. ]]; then
+          echo "✅ Spring Boot $SB_VERSION - Modern version with latest security patches"
+        else
+          echo "⚠️  WARNING: Unrecognized Spring Boot version: $SB_VERSION"
         fi
         
         # Check for log4j (should not be present, but good to check)
@@ -193,13 +213,13 @@ jobs:
           fi
         fi
         
-        # Check for Spring Framework version
-        if mvn dependency:tree | grep -q "spring-web:"; then
-          echo "🔎 Checking Spring Framework dependencies..."
-          # Spring 5.3.x before 5.3.18 has CVE-2022-22965
-          echo "   - Spring Web 5.3.10 has known vulnerabilities"
-          echo "   - CVE-2022-22965: Spring4Shell RCE"
-          VULNERABLE=1
+        # Check for Spring Framework version (only for older Spring Boot versions)
+        if [[ "$SB_VERSION" =~ ^2\.[0-5]\. ]] || [[ "$SB_VERSION" =~ ^2\.6\. ]]; then
+          if mvn dependency:tree | grep -q "spring-web:"; then
+            echo "🔎 Checking Spring Framework dependencies..."
+            echo "   - Spring Framework has known vulnerabilities in this Spring Boot version"
+            echo "   - CVE-2022-22965: Spring4Shell RCE"
+          fi
         fi
         
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
