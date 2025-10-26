@@ -259,7 +259,7 @@ jobs:
   dast-scan:
     name: DAST - Dynamic Security Scan
     runs-on: ubuntu-latest
-    needs: [build-and-test, sast-analysis, sca-scan]
+    needs: [build-and-test, sast-analysis, dependency-scan]
     
     steps:
     - name: Checkout code
