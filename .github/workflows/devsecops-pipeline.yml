@@ -51,27 +51,16 @@ jobs:
         path: target/*.jar
         retention-days: 7
 
-  sast-sonarqube:
-    name: SAST - SonarQube Analysis
+  sast-analysis:
+    name: SAST - Static Code Analysis
     runs-on: ubuntu-latest
     needs: build-and-test
-    
-    services:
-      sonarqube:
-        image: sonarqube:community
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 30
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Shallow clones should be disabled for better relevancy of analysis
+        fetch-depth: 0
         
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -80,53 +69,59 @@ jobs:
         distribution: 'temurin'
         cache: maven
         
-    - name: Wait for SonarQube to be ready
+    - name: Run SpotBugs Security Analysis
       run: |
-        echo "⏳ Waiting for SonarQube to start..."
-        timeout 300 bash -c 'until curl -s http://localhost:9000/api/system/status | grep -q "UP"; do sleep 5; done'
-        echo "✅ SonarQube is ready!"
+        echo "🔍 Running SpotBugs for security vulnerability detection..."
+        mvn -B compile spotbugs:spotbugs -Dspotbugs.effort=Max -Dspotbugs.threshold=Low
+      continue-on-error: true
         
-    - name: Create SonarQube project
+    - name: Generate SpotBugs Report
       run: |
-        # Generate token
-        TOKEN=$(curl -u admin:admin -X POST "http://localhost:9000/api/user_tokens/generate?name=github-actions" | jq -r '.token')
-        echo "SONAR_TOKEN=$TOKEN" >> $GITHUB_ENV
-        
-        # Create project
-        curl -u admin:admin -X POST "http://localhost:9000/api/projects/create?name=Sprinboot-With-Docker&project=sprinboot-docker&visibility=public"
-        
-    - name: Build and analyze with SonarQube
-      run: |
-        mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-          -Dsonar.projectKey=sprinboot-docker \
-          -Dsonar.projectName=Sprinboot-With-Docker \
-          -Dsonar.host.url=http://localhost:9000 \
-          -Dsonar.token=${{ env.SONAR_TOKEN }}
-          
-    - name: Check SonarQube Quality Gate
-      run: |
-        echo "⏳ Checking Quality Gate status..."
-        sleep 10
-        
-        # Get quality gate status
-        STATUS=$(curl -s -u admin:admin "http://localhost:9000/api/qualitygates/project_status?projectKey=sprinboot-docker" | jq -r '.projectStatus.status')
-        
-        echo "Quality Gate Status: $STATUS"
-        
-        if [ "$STATUS" != "OK" ] && [ "$STATUS" != "NONE" ]; then
-          echo "❌ Quality Gate Failed! Security vulnerabilities or quality issues detected."
-          echo "📊 Check the logs above for detailed SonarQube analysis results."
-          exit 1
-        else
-          echo "✅ Quality Gate Passed!"
+        mvn spotbugs:gui || true
+        if [ -f target/spotbugsXml.xml ]; then
+          echo "📊 SpotBugs found potential issues:"
+          cat target/spotbugsXml.xml
         fi
         
-    - name: Display SonarQube Results
-      if: always()
+    - name: Run PMD Security Analysis
       run: |
-        echo "📊 SonarQube Analysis Results:"
-        echo "Dashboard: http://localhost:9000/dashboard?id=sprinboot-docker"
-        echo "Note: This is a temporary instance running during CI/CD"
+        echo "🔍 Running PMD for code quality and security..."
+        mvn -B pmd:pmd pmd:cpd
+      continue-on-error: true
         
-        # Get metrics
-        curl -s -u admin:admin "http://localhost:9000/api/measures/component?component=sprinboot-docker&metricKeys=bugs,vulnerabilities,code_smells,security_hotspots,coverage" | jq '.'
+    - name: Check for Security Issues
+      run: |
+        echo "🔎 Analyzing code for security vulnerabilities..."
+        
+        # Check for hardcoded credentials
+        echo "Checking for hardcoded credentials..."
+        if grep -r "password.*=" src/ --include="*.java" | grep -v "//"; then
+          echo "❌ CRITICAL: Hardcoded credentials detected!"
+          echo "Found hardcoded passwords in source code"
+          exit 1
+        fi
+        
+        # Check for SQL injection patterns
+        echo "Checking for SQL injection vulnerabilities..."
+        if grep -r "SELECT.*+.*" src/ --include="*.java" | grep -v "//"; then
+          echo "❌ CRITICAL: Potential SQL injection vulnerability detected!"
+          echo "Found SQL queries with string concatenation"
+          exit 1
+        fi
+        
+        # Check for command injection
+        echo "Checking for command injection vulnerabilities..."
+        if grep -r "Runtime.getRuntime().exec" src/ --include="*.java" | grep -v "//"; then
+          echo "❌ CRITICAL: Command injection vulnerability detected!"
+          echo "Found direct command execution with Runtime.exec()"
+          exit 1
+        fi
+        
+        # Check for path traversal
+        echo "Checking for path traversal vulnerabilities..."
+        if grep -r "new File.*+.*" src/ --include="*.java" | grep -v "//"; then
+          echo "⚠️  WARNING: Potential path traversal vulnerability!"
+          echo "Found file operations with unsanitized input"
+        fi
+        
+        echo "✅ Basic security checks completed"

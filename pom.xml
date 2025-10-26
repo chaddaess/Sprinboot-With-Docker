@@ -35,6 +35,38 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			
+			<!-- SpotBugs for security vulnerability detection -->
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>4.8.3.0</version>
+				<configuration>
+					<effort>Max</effort>
+					<threshold>Low</threshold>
+					<failOnError>false</failOnError>
+					<plugins>
+						<plugin>
+							<groupId>com.h3xstream.findsecbugs</groupId>
+							<artifactId>findsecbugs-plugin</artifactId>
+							<version>1.12.0</version>
+						</plugin>
+					</plugins>
+				</configuration>
+			</plugin>
+			
+			<!-- PMD for code quality and security -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-pmd-plugin</artifactId>
+				<version>3.21.2</version>
+				<configuration>
+					<rulesets>
+						<ruleset>/rulesets/java/quickstart.xml</ruleset>
+					</rulesets>
+					<failOnViolation>false</failOnViolation>
+				</configuration>
+			</plugin>
 		</plugins>
 		<finalName>app</finalName>
 	</build>
