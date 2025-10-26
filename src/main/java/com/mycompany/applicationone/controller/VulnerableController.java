@@ -95,4 +95,35 @@ public class VulnerableController {
         }
         return input.toUpperCase();
     }
+
+    // VULNERABLE: XSS - Reflects user input without sanitization in HTML response
+    // DAST tools like OWASP ZAP will detect this
+    @GetMapping(value = "/search", produces = "text/html")
+    public String search(@RequestParam String query) {
+        // VULNERABILITY: Directly embedding user input in HTML without escaping
+        // An attacker could inject: <script>alert('XSS')</script>
+        return "<html><body>" +
+               "<h1>Search Results</h1>" +
+               "<p>You searched for: " + query + "</p>" +
+               "<p>No results found.</p>" +
+               "</body></html>";
+    }
+
+    // VULNERABLE: Sensitive data exposure without authentication
+    // DAST will flag this as accessible without proper security headers
+    @GetMapping("/admin/config")
+    public String getAdminConfig() {
+        // VULNERABILITY: Exposing sensitive configuration without authentication
+        return "{\n" +
+               "  \"database\": \"postgresql://prod-db:5432/myapp\",\n" +
+               "  \"api_keys\": {\n" +
+               "    \"payment_gateway\": \"pk_live_123456789\",\n" +
+               "    \"email_service\": \"key-abcdef123456\"\n" +
+               "  },\n" +
+               "  \"internal_endpoints\": [\n" +
+               "    \"http://internal-api.local/admin\",\n" +
+               "    \"http://10.0.0.5:8080/metrics\"\n" +
+               "  ]\n" +
+               "}";
+    }
 }

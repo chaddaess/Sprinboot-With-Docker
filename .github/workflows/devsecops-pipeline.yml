@@ -255,3 +255,149 @@ jobs:
           target/site/
           target/*.txt
         retention-days: 7
+
+  dast-scan:
+    name: DAST - Dynamic Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-and-test, sast-analysis, sca-scan]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Build Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: application-jar
+        path: target/
+        
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        
+    - name: Build Docker Image
+      run: |
+        echo "🐳 Building Docker image for testing..."
+        docker build -t app-under-test:latest .
+        
+    - name: Start Application Container
+      run: |
+        echo "🚀 Starting application in ephemeral environment..."
+        docker run -d --name test-app -p 8080:8080 app-under-test:latest
+        
+        # Wait for application to be ready (max 60 seconds)
+        echo "⏳ Waiting for application to start..."
+        for i in {1..30}; do
+          if curl -s http://localhost:8080/api/v1/welcome > /dev/null 2>&1; then
+            echo "✅ Application is ready!"
+            break
+          fi
+          echo "Waiting... ($i/30)"
+          sleep 2
+        done
+        
+        # Verify application is running
+        if ! curl -s http://localhost:8080/api/v1/welcome > /dev/null 2>&1; then
+          echo "❌ Application failed to start!"
+          docker logs test-app
+          exit 1
+        fi
+        
+        # Test vulnerable endpoints are accessible
+        echo "🔍 Testing vulnerable endpoints..."
+        curl -s "http://localhost:8080/api/v1/secure/search?query=test" || echo "Search endpoint not ready"
+        curl -s "http://localhost:8080/api/v1/secure/admin/config" || echo "Admin endpoint not ready"
+        
+    - name: Create ZAP Config
+      run: |
+        echo "⚙️  Creating ZAP scan configuration..."
+        # Create a simple ZAP config file
+        cat > zap-rules.conf << 'EOF'
+        # ZAP Scanning Rules Configuration
+        # Format: RULE_ID THRESHOLD (IGNORE, INFO, WARN, FAIL)
+        
+        # Ignore rules that are not critical for this demo
+        10021 IGNORE  # X-Content-Type-Options header missing
+        10096 IGNORE  # Timestamp Disclosure
+        10109 IGNORE  # Modern Web Application
+        10049 IGNORE  # Content Cacheability
+        EOF
+        
+    - name: Run OWASP ZAP Baseline Scan
+      run: |
+        echo "🎯 Running OWASP ZAP Dynamic Application Security Testing..."
+        
+        # Pull ZAP Docker image
+        docker pull ghcr.io/zaproxy/zaproxy:stable
+        
+        # Run ZAP baseline scan with aggressive settings
+        # -a to include alpha scanners
+        # -j to use AJAX spider for better coverage
+        docker run --network="host" -v $(pwd):/zap/wrk/:rw \
+          ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+          -t http://localhost:8080 \
+          -r zap-report.html \
+          -J zap-report.json \
+          -w zap-report.md \
+          -c zap-rules.conf \
+          -a \
+          -j \
+          || echo "ZAP scan completed (may have findings)"
+          
+    - name: Analyze ZAP Results
+      if: always()
+      run: |
+        echo "📊 Analyzing OWASP ZAP scan results..."
+        
+        if [ -f zap-report.json ]; then
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📋 DAST SCAN RESULTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Count alerts by risk level
+          HIGH_ALERTS=$(cat zap-report.json | grep -o '"risk":"High"' | wc -l || echo "0")
+          MEDIUM_ALERTS=$(cat zap-report.json | grep -o '"risk":"Medium"' | wc -l || echo "0")
+          LOW_ALERTS=$(cat zap-report.json | grep -o '"risk":"Low"' | wc -l || echo "0")
+          INFO_ALERTS=$(cat zap-report.json | grep -o '"risk":"Informational"' | wc -l || echo "0")
+          
+          echo "🔴 High Risk Alerts: $HIGH_ALERTS"
+          echo "🟡 Medium Risk Alerts: $MEDIUM_ALERTS"
+          echo "🟢 Low Risk Alerts: $LOW_ALERTS"
+          echo "ℹ️  Informational: $INFO_ALERTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # Fail on high risk vulnerabilities
+          if [ "$HIGH_ALERTS" -gt "0" ]; then
+            echo "❌ DAST SCAN FAILED: High risk vulnerabilities detected!"
+            echo ""
+            echo "📝 Review the ZAP report for details and remediation steps"
+            exit 1
+          else
+            echo "✅ DAST SCAN PASSED: No high-risk vulnerabilities found"
+          fi
+        else
+          echo "⚠️  ZAP report not found, scan may have failed"
+          exit 1
+        fi
+        
+    - name: Upload ZAP Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: zap-reports
+        path: |
+          zap-report.html
+          zap-report.json
+          zap-report.md
+        retention-days: 7
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        echo "🧹 Cleaning up ephemeral environment..."
+        docker stop test-app || true
+        docker rm test-app || true
+        docker rmi app-under-test:latest || true
+        echo "✅ Cleanup complete"
